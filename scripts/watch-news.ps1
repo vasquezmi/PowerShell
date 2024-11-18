@@ -1,47 +1,61 @@
 ﻿<#
 .SYNOPSIS
-	Watch the latest headlines
+	Watch the news
 .DESCRIPTION
-	This PowerShell script lists the latest headlines by using a RSS (Really Simple Syndication) feed.
-.PARAMETER RSS_URL
+	This PowerShell script continuously lists the latest headlines by using a RSS (Really Simple Syndication) feed.
+.PARAMETER URL
 	Specifies the URL to the RSS feed (Yahoo World News by default)
 .PARAMETER lines
 	Specifies the initial number of headlines
 .PARAMETER timeInterval
-	Specifies the time interval in seconds between the Web requests
+	Specifies the time interval in seconds between two Web requests (60 seconds by default)
 .EXAMPLE
 	PS> ./watch-news.ps1
-	❇️ Niger coup: Ecowas deadline sparks anxiety in northern Nigeria ❇️
+
+	 UTC   HEADLINES (by: https://www.yahoo.com/news/world)
+	 ---   ------------------------------------------------
+	14:29  Niger coup: Ecowas deadline sparks anxiety in northern Nigeria
+	...
 .LINK
 	https://github.com/fleschutz/PowerShell
 .NOTES
 	Author: Markus Fleschutz | License: CC0
 #>
 
-param([string]$RSS_URL = "https://news.yahoo.com/rss/world", [int]$lines = 10, [int]$timeInterval = 30) # in seconds
+param([string]$URL = "https://news.yahoo.com/rss/world", [int]$timeInterval = 60) # in seconds
 
-function PrintLatestHeadlines([string]$previous, [int]$maxLines) {
-	[xml]$content = (Invoke-WebRequest -URI $RSS_URL -useBasicParsing).Content
-	[string]$latest = ""
-
-	foreach ($item in $content.rss.channel.item) {
-		$itemTitle = "$($item.title)"
-		if ($latest -eq "") { $latest = $itemTitle }
-		if ($itemTitle -eq $previous) { break }
-
-		& "$PSScriptRoot/write-animated.ps1" "❇️ $itemTitle ❇️"
-		$maxLines--
-		if ($maxLines -eq 0) { break }
+function PrintLatestHeadlines([xml]$content, [string]$latestTimestamp, [string]$icon) {
+	$items = $content.rss.channel.item
+	[array]::Reverse($items)
+	$newLatest = $latestTimestamp
+	foreach($item in $items) {
+		$pubDate = $item.pubDate
+		if ($pubDate -le $latestTimestamp) { continue }
+		$title = $item.title
+		$time = $pubDate.Substring(11, 5)
+		Write-Host "$time  $title$icon"
+		Start-Sleep -milliseconds 500
+		if ($pubDate -gt $newLatest) { $newLatest = $pubDate }
 	}
-	return $latest
+	return $newLatest
 }
 
 try {
-	$latest = ""
-	while ($true) {
-		$latest = PrintLatestHeadlines $latest $lines
+	[xml]$content = (Invoke-WebRequest -URI $URL -useBasicParsing).Content
+	$title = $content.rss.channel.title.toUpper()
+	$link = $content.rss.channel.link
+	Write-Host "`n UTC   HEADLINES (by: " -noNewline
+	Write-Host $link -foregroundColor blue -noNewline
+	Write-Host ")"
+	Write-Host " ---   ------------------------------------------------"
+	$latestTimestamp = "2000-01-01"
+	$icon = ""
+	do {
+		$latestTimestamp = PrintLatestHeadlines $content $latestTimestamp $icon
+		$icon = "🆕"
 		Start-Sleep -seconds $timeInterval
-	}
+		[xml]$content = (Invoke-WebRequest -URI $URL -useBasicParsing).Content
+	} while ($true)
 	exit 0 # success
 } catch {
 	"⚠️ Error in line $($_.InvocationInfo.ScriptLineNumber): $($Error[0])"
